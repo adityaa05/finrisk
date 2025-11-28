@@ -3,6 +3,8 @@ import json
 import yfinance as yf  # stock data from yahoo finance
 from google.genai.types import GenerateContentConfig
 from google.genai import types
+import chromadb
+from chromadb.utils import embedding_functions
 
 # from openai import OpenAI
 from termcolor import colored
@@ -35,10 +37,47 @@ def calculate_diff(current_price, target_price):
         return json.dumps({"error": str(e)})
 
 
+def search_knowledge_base(query):
+    """Searches the financial knowledge base (Tata Motors Annual Report) for relevant information."""
+    try:
+        # Connect to the ChromaDB database
+        chroma_client = chromadb.PersistentClient(path="./tata_knowledge_base")
+
+        # Use the same embedding function as ingest.py
+        sentence_transformer_embedding = (
+            embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name="all-MiniLM-L6-v2"
+            )
+        )
+
+        # Get the collection
+        collection = chroma_client.get_collection(
+            name="financial_knowledge_base",
+            embedding_function=sentence_transformer_embedding,
+        )
+
+        # Search for relevant chunks
+        results = collection.query(
+            query_texts=[query], n_results=2  # Get top 3 most relevant chunks
+        )
+
+        # Format results for the AI
+        if results["documents"] and results["documents"][0]:
+            formatted_results = "\n\n---\n\n".join(results["documents"][0])
+            return json.dumps(
+                {"results": formatted_results, "count": len(results["documents"][0])}
+            )
+        else:
+            return json.dumps({"results": "No relevant information found.", "count": 0})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
 # Function mapping
 function_map = {
     "get_stock_prices": get_stock_prices,
     "calculate_diff": calculate_diff,
+    "search_knowledge_base": search_knowledge_base,
 }
 
 # Function declarations used by the Gemini tools API
@@ -75,6 +114,20 @@ tool_declarations = [
             required=["current_price", "target_price"],
         ),
     ),
+    types.FunctionDeclaration(
+        name="search_knowledge_base",
+        description="Search the Tata Motors Annual Report knowledge base for financial information like revenue, assets, liabilities, growth metrics, CEO details, company performance, etc. Use this when users ask about Tata Motors financial data or annual report information.",
+        parameters=types.Schema(
+            type="object",
+            properties={
+                "query": types.Schema(
+                    type="string",
+                    description="The search query to find relevant information in the financial knowledge base",
+                ),
+            },
+            required=["query"],
+        ),
+    ),
 ]
 
 # List of Tool objects passed to GenerateContentConfig
@@ -87,16 +140,15 @@ def init_agent(query):
     # Chat config
     config = types.GenerateContentConfig(
         system_instruction=str(
-            "You are a WallStreet financial analyst. Use the tools to get data, then provide a complete, detailed answer that includes all relevant numbers and context.",
+            "You are a financial analyst. For Tata Motors questions, always use search_knowledge_base. Cite page numbers."
         ),
         tools=tools,
         tool_config=types.ToolConfig(
-            function_calling_config=types.FunctionCallingConfig(mode="AUTO")
+            function_calling_config=types.FunctionCallingConfig(mode="ANY")
         ),
-        temperature=1,
+        temperature=0.2,
         top_k=40,
-        top_p=0.95,
-        max_output_tokens=256,
+        top_p=0.8,
     )
     # Chat creation
     chat = client.chats.create(
@@ -160,6 +212,8 @@ def init_agent(query):
         # 4. Send ALL results back to the model at once
         response = chat.send_message(function_responses)
 
+    chat._curated_history = []  # Reset the chat history
+
     """# Check if response has candidates and parts
     if not response.candidates or not response.candidates[0].content.parts:
         print(colored(f"Agent: {response.text}", "green"))
@@ -202,9 +256,13 @@ def init_agent(query):
 
 
 if __name__ == "__main__":
-    init_agent(
-        "What is the current price of Nvidia? I want to sell at 50 then what is the diff?"
-    )
+    # Example 1: Stock prices and calculations
+    # init_agent(
+    #     "What is the current price of IBM and Nvidia? I want to sell at 50 then what is the diff?"
+    # )
+
+    # Example 2: Knowledge base search (Tata Motors Annual Report)
+    init_agent("What was Tata Motors revenue in 2024?")
 
 """client = genai.Client()
 

@@ -1,2 +1,15 @@
 .env
 finrisk_documentation.pages
+Roadmap.pages
+IMPROVEMENTS_SUMMARY.md
+README_KNOWLEDGE_BASE.md
+tata_knowledge_base/chroma.sqlite3
+tata_knowledge_base/6501e518-ad9a-48a1-820a-255cdf9de01c/data_level0.bin
+tata_knowledge_base/6501e518-ad9a-48a1-820a-255cdf9de01c/header.bin
+.gitignore
+tata_knowledge_base/6501e518-ad9a-48a1-820a-255cdf9de01c/length.bin
+tata_knowledge_base/6501e518-ad9a-48a1-820a-255cdf9de01c/index_metadata.pickle
+.gitignore
+ingest_v1.py
+tata_knowledge_base/6501e518-ad9a-48a1-820a-255cdf9de01c/link_lists.bin
+dsa_temp.py

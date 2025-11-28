@@ -9,11 +9,13 @@ from termcolor import colored
 from google import genai
 from dotenv import load_dotenv
 
-load_dotenv()
 
+# Configuration
+load_dotenv()
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 
+# Functions for respective tasks
 def get_stock_prices(symbol):
     try:
         ticker = yf.Ticker(symbol)
@@ -23,46 +25,142 @@ def get_stock_prices(symbol):
         return json.dumps({"error": str(e)})
 
 
-price_function = types.FunctionDeclaration(
-    name="get_stock_prices",
-    description="Get current stock price for a US stock symbol (e.g., AAPL, TSLA).",
-    parameters=types.Schema(
-        type="object",
-        properties={
-            "symbol": types.Schema(
-                type="string",
-                description="The stock ticker symbol",
-            ),
-        },
-        required=["symbol"],
+def calculate_diff(current_price, target_price):
+    try:
+        current_price = float(current_price)
+        target_price = float(target_price)
+        diff = (target_price - current_price) / current_price * 100
+        return json.dumps({"diff": round(diff, 2)})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# Function mapping
+function_map = {
+    "get_stock_prices": get_stock_prices,
+    "calculate_diff": calculate_diff,
+}
+
+# Function declarations used by the Gemini tools API
+tool_declarations = [
+    types.FunctionDeclaration(
+        name="get_stock_prices",
+        description="Get current stock price for a US stock symbol (e.g., AAPL, TSLA).",
+        parameters=types.Schema(
+            type="object",
+            properties={
+                "symbol": types.Schema(
+                    type="string",
+                    description="The stock ticker symbol",
+                ),
+            },
+            required=["symbol"],
+        ),
     ),
-)
+    types.FunctionDeclaration(
+        name="calculate_diff",
+        description="Calculate the percentage gain/loss from a current price to a target price.",
+        parameters=types.Schema(
+            type="object",
+            properties={
+                "current_price": types.Schema(
+                    type="number",
+                    description="The current stock price",
+                ),
+                "target_price": types.Schema(
+                    type="number",
+                    description="The user's desired target price",
+                ),
+            },
+            required=["current_price", "target_price"],
+        ),
+    ),
+]
 
-tools = types.Tool(function_declarations=[price_function])
+# List of Tool objects passed to GenerateContentConfig
+tools = [types.Tool(function_declarations=tool_declarations)]
 
 
+# Agent initialization
 def init_agent(query):
-    system_instruction = "You are a WallStreet financial analyst. Use data to answer."
-
     print(colored(f"User: {query}", "blue"))
-
+    # Chat config
     config = types.GenerateContentConfig(
-        system_instruction=system_instruction,
-        tools=[tools],
+        system_instruction=str(
+            "You are a WallStreet financial analyst. Use the tools to get data, then provide a complete, detailed answer that includes all relevant numbers and context.",
+        ),
+        tools=tools,
         tool_config=types.ToolConfig(
             function_calling_config=types.FunctionCallingConfig(mode="AUTO")
         ),
-        temperature=0
+        temperature=1,
+        top_k=40,
+        top_p=0.95,
+        max_output_tokens=256,
     )
-
+    # Chat creation
     chat = client.chats.create(
         model="gemini-2.0-flash-lite",
         config=config,
     )
-
+    # Chat response
     response = chat.send_message(query)
 
-    # Check if response has candidates and parts
+    # We loop while the model keeps asking for tool calls
+    while response.candidates and response.candidates[0].content.parts:
+
+        # 1. Filter the parts to find ONLY function calls
+        function_calls = [
+            part.function_call
+            for part in response.candidates[0].content.parts
+            if part.function_call
+        ]
+
+        # 2. If no function calls, extract and print ALL text parts
+        if not function_calls:
+            # Collect all text from parts
+            text_parts = []
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, "text") and part.text:
+                    text_parts.append(part.text)
+
+            final_text = "".join(text_parts).strip()
+
+            if final_text:
+                print(colored(f"Agent: {final_text}", "green"))
+            else:
+                # Fallback to response.text if parts are empty
+                print(colored(f"Agent: {response.text}", "green"))
+            break
+
+        # 3. If there ARE calls, execute them
+        function_responses = []
+
+        for call in function_calls:
+            fn_name = call.name
+            fn_args = call.args
+
+            # Execute if valid
+            if fn_name in function_map:
+                try:
+                    # **fn_args unpacks the arguments automatically
+                    result = function_map[fn_name](**fn_args)
+                except Exception as e:
+                    result = {"error": f"Function execution failed: {e}"}
+            else:
+                result = {"error": "Unknown function"}
+
+            # Package the result for Gemini
+            function_responses.append(
+                types.Part.from_function_response(
+                    name=fn_name, response={"result": result}
+                )
+            )
+
+        # 4. Send ALL results back to the model at once
+        response = chat.send_message(function_responses)
+
+    """# Check if response has candidates and parts
     if not response.candidates or not response.candidates[0].content.parts:
         print(colored(f"Agent: {response.text}", "green"))
         return
@@ -88,8 +186,7 @@ def init_agent(query):
                     # Create proper function response part
                     function_responses.append(
                         types.Part.from_function_response(
-                            name=function_name,
-                            response={"result": function_response}
+                            name=function_name, response={"result": function_response}
                         )
                     )
 
@@ -101,9 +198,14 @@ def init_agent(query):
         # No function call, just print the text response
         print(colored(f"Agent: {response.text}", "green"))
 
+"""
+
+
 if __name__ == "__main__":
-    init_agent("What is the current price of Nvidia?")
-        
+    init_agent(
+        "What is the current price of Nvidia? I want to sell at 50 then what is the diff? Give complete answer"
+    )
+
 """client = genai.Client()
 
 response = client.models.generate_content(

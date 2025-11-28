@@ -203,7 +203,7 @@ def init_agent(query):
 
 if __name__ == "__main__":
     init_agent(
-        "What is the current price of Nvidia? I want to sell at 50 then what is the diff? Give complete answer"
+        "What is the current price of Nvidia? I want to sell at 50 then what is the diff?"
     )
 
 """client = genai.Client()

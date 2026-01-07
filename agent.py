@@ -1,16 +1,13 @@
-import os
 import json
-import yfinance as yf  # stock data from yahoo finance
-from google.genai.types import GenerateContentConfig
-from google.genai import types
+import os
+
 import chromadb
+import google.generativeai as genai
+import yfinance as yf
 from chromadb.utils import embedding_functions
-
-# from openai import OpenAI
-from termcolor import colored
-from google import genai
 from dotenv import load_dotenv
-
+from google.generativeai import types
+from termcolor import colored
 
 # Configuration
 load_dotenv()
@@ -58,7 +55,8 @@ def search_knowledge_base(query):
 
         # Search for relevant chunks
         results = collection.query(
-            query_texts=[query], n_results=2  # Get top 3 most relevant chunks
+            query_texts=[query],
+            n_results=2,  # Get top 3 most relevant chunks
         )
 
         # Format results for the AI
@@ -160,7 +158,6 @@ def init_agent(query):
 
     # We loop while the model keeps asking for tool calls
     while response.candidates and response.candidates[0].content.parts:
-
         # 1. Filter the parts to find ONLY function calls
         function_calls = [
             part.function_call
